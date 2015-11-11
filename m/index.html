@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>Audio Conference</title>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+        <script src="https://code.jquery.com/jquery-2.1.4.min.js" ></script>
+        <!-- Latest compiled and minified CSS -->
+        <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.5/css/bootstrap.min.css" integrity="sha512-dTfge/zgoMYpP7QbHy4gWMEGsbsdZeCXz7irItjcC3sPUFtf0kuFbDz/ixG7ArTxmDjLXDmezHubeNikyKGVyQ==" crossorigin="anonymous">
+
+
+        <!-- Latest compiled and minified JavaScript -->
+        <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.5/js/bootstrap.min.js" integrity="sha512-K1qjQ+NcF2TYO/eI3M6v8EiNYZfA95pQumfvcVrTHtwQVDG+aHRqLi/ETn2uB+1JqwYqVG3LIvdm9lj6imS/pQ==" crossorigin="anonymous"></script>
+
+        <!-- scripts used for broadcasting -->
+        <script src="https://cdn.webrtc-experiment.com/firebase.js"></script>
+        <script src="https://cdn.webrtc-experiment.com/RTCMultiConnection.js"></script>
+
+    </head>
+    <body>
+        <div class="row">
+            <div class="col-xs-1 col-md-4"></div>
+            <div class="col-xs-10 col-md-6">
+                <h1>Audio Conference</h1>
+                <br/>
+            </div>
+            <div class="col-xs-1 col-md-4"></div>
+        </div>
+        
+        <div class="row">
+            <div class="col-xs-1 col-md-4"></div>
+            <div class="col-xs-10 col-md-6">
+                <input type="text" class="form-control" id="conference-name">
+            </div>
+            <div class="col-xs-1 col-md-4"></div>
+        </div>
+        
+        <div class="row">
+            <div class="col-xs-1 col-md-4"></div>
+            <div class="col-xs-10 col-md-6">
+                <br/>
+            </div>
+            <div class="col-xs-1 col-md-4"></div>
+        </div>
+        
+        <div class="row">
+            <div class="col-xs-1 col-md-4"></div>
+            <div class="col-xs-10 col-md-6">
+                <button id="setup-new-conference" class="setup btn btn-primary btn-block">Setup New Conference</button>
+            </div>
+            <div class="col-xs-1 col-md-4"></div>
+        </div>
+        
+        <div class="row">
+            <div class="col-xs-1 col-md-4"></div>
+            <div class="col-xs-10 col-md-6">
+                <br/>
+            </div>
+            <div class="col-xs-1 col-md-4"></div>
+        </div>
+        
+         <div class="row">
+            <div class="col-xs-1 col-md-4"></div>
+            <div class="col-xs-10 col-md-6">
+                <!-- list of all available broadcasting rooms -->
+                <table style="width: 100%;" id="rooms-list"></table>
+            </div>
+            <div class="col-xs-1 col-md-4"></div>
+        </div>
+        
+        <div class="row">
+            <div class="col-xs-1 col-md-4"></div>
+            <div class="col-xs-10 col-md-6">
+                <br/>
+            </div>
+            <div class="col-xs-1 col-md-4"></div>
+        </div>
+        
+        <div class="row">
+            <div class="col-xs-1 col-md-4"></div>
+            <div class="col-xs-10 col-md-6">
+                <!-- local/remote videos container -->
+                <div id="audios-container"></div>
+            </div>
+            <div class="col-xs-1 col-md-4"></div>
+        </div>
+    </body>
+    <script>
+        // Muaz Khan     - https://github.com/muaz-khan
+        // MIT License   - https://www.webrtc-experiment.com/licence/
+        // Documentation - https://github.com/muaz-khan/RTCMultiConnection
+
+        var connection = new RTCMultiConnection();
+        connection.session = {
+            audio: true
+        };
+
+        connection.sdpConstraints.mandatory = {
+            OfferToReceiveAudio: true,
+            OfferToReceiveVideo: false
+        };
+
+        connection.onstream = function (e) {
+            audioContainer.insertBefore(e.mediaElement, audioContainer.firstChild);
+        };
+
+        var sessions = {};
+        connection.onNewSession = function (session) {
+            if (sessions[session.sessionid])
+                return;
+            sessions[session.sessionid] = session;
+
+            var tr = document.createElement('tr');
+            tr.innerHTML = '<td><strong>' + session.sessionid + '</strong> is running a conference!</td>' +
+                    '<td><button class="join btn btn-default">Join</button></td>';
+            roomsList.insertBefore(tr, roomsList.firstChild);
+
+            var joinRoomButton = tr.querySelector('.join');
+            joinRoomButton.setAttribute('data-sessionid', session.sessionid);
+            joinRoomButton.onclick = function () {
+                this.disabled = true;
+
+                var sessionid = this.getAttribute('data-sessionid');
+                session = sessions[sessionid];
+
+                if (!session)
+                    throw 'No such session exists.';
+
+                connection.join(session);
+            };
+        };
+
+        var audioContainer = document.getElementById('audios-container') || document.body;
+        var roomsList = document.getElementById('rooms-list');
+
+        document.getElementById('setup-new-conference').onclick = function () {
+            this.disabled = true;
+            connection.open(document.getElementById('conference-name').value || 'Anonymous');
+        };
+
+        // setup signaling to search existing sessions
+        connection.connect();
+
+        (function () {
+            var uniqueToken = document.getElementById('unique-token');
+            if (uniqueToken)
+                if (location.hash.length > 2)
+                    uniqueToken.parentNode.parentNode.parentNode.innerHTML = '<h2 style="text-align:center;"><a href="' + location.href + '" target="_blank">Share this link</a></h2>';
+                else
+                    uniqueToken.innerHTML = uniqueToken.parentNode.parentNode.href = '#' + (Math.random() * new Date().getTime()).toString(36).toUpperCase().replace(/\./g, '-');
+        })();
+    </script>
+</html>
