@@ -13,26 +13,116 @@ and open the template in the editor.
         <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.5/css/bootstrap.min.css" integrity="sha512-dTfge/zgoMYpP7QbHy4gWMEGsbsdZeCXz7irItjcC3sPUFtf0kuFbDz/ixG7ArTxmDjLXDmezHubeNikyKGVyQ==" crossorigin="anonymous">
         <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.5/js/bootstrap.min.js" integrity="sha512-K1qjQ+NcF2TYO/eI3M6v8EiNYZfA95pQumfvcVrTHtwQVDG+aHRqLi/ETn2uB+1JqwYqVG3LIvdm9lj6imS/pQ==" crossorigin="anonymous"></script>
         <script>
-            $(document).ready(function(){
-                $("#console").html("documnet ready.<br/>");
-                
-                var contextClass = (window.AudioContext ||
+            var isMozilla = window.mozRTCPeerConnection && !window.webkitRTCPeerConnection;
+            if (isMozilla) {
+                window.webkitURL = window.URL;
+                navigator.webkitGetUserMedia = navigator.mozGetUserMedia;
+                window.webkitRTCPeerConnection = window.mozRTCPeerConnection;
+                window.RTCSessionDescription = window.mozRTCSessionDescription;
+                window.RTCIceCandidate = window.mozRTCIceCandidate;
+            }
+            
+            var contextClass = (window.AudioContext ||
                 window.webkitAudioContext ||
                 window.mozAudioContext ||
                 window.oAudioContext ||
                 window.msAudioContext);
-        
+                
+            function logError(error) {
+                if (error) {
+                    if (error.name && error.message)
+                        log(error.name + ": " + error.message);
+                    else
+                        log(error);
+                } else
+                    log("Error (no error message)");
+            }
+            
+            function log(msg) {
+                log.div = log.div || document.getElementById("console");
+                log.div.appendChild(document.createTextNode(msg));
+                log.div.appendChild(document.createElement("br"));
+            }
+
+            $(document).ready(function(){
+                log("documnet ready.");
+                //
+                // INIT CONTEXT
+                //
                 if (contextClass) {
                     var context = new contextClass();
                     var gainValue = 0.1;
                     var gainNode = context.createGain ? context.createGain() : context.createGainNode();
                     var oscillator;
 
-                    $("#console").append("create context success.<br/>");
+                    log("create context success.");
                 }else{
-                    $("#console").append("create context fail.<br/>");
+                    log("create context fail.");
                 }
+                //
+                // GUI
+                //
+                var rafID = null;
+                var tracks = null;
+                var buflen = 1024;
+                var buf = new Float32Array( buflen );
+                var pStream;
+                var sourceNode = null;
+                var analyser = null;
+                var theBuffer = null;
+                var DEBUGCANVAS = null;
+                var mediaStreamSource = null;
+                var waveCanvas, WIDTH, HEIGHT;
                 
+                
+                DEBUGCANVAS = document.getElementById( "waveform" );
+                if (DEBUGCANVAS) {
+                    waveCanvas = DEBUGCANVAS.getContext("2d");
+                    waveCanvas.strokeStyle = "black";
+                    waveCanvas.lineWidth = 1;
+                    WIDTH = DEBUGCANVAS.width;
+                    HEIGHT = DEBUGCANVAS.height;
+                }
+        
+                $("#playBtn").click(function(){
+                    log("click play button.");
+                    oscOn(440);
+                })
+                
+                $("#stopBtn").click(function(){
+                    log("click stop button.");
+                    oscillator.disconnect();
+                })
+                
+                $("#listenBtn").click(function(){
+                    log("click listen button.");
+                    // get a local stream
+                    navigator.webkitGetUserMedia({ "audio": true, "video": true }, function (stream) {
+                        if(stream){
+                            pStream = stream;
+                            $("#self_view")[0].src = URL.createObjectURL(stream);
+                            //var audioCtx = new contextClass;
+                            Analyser.init(context, DEBUGCANVAS);
+                            Analyser.draw();
+                            //gotStream(pStream);
+                        }
+                    }, logError);
+                })
+                
+                $("#muteBtn").click(function(){
+                    log("click mute button.");
+                    if(pStream){
+                        pStream.stop();
+                        pStream = null;
+                        $("#self_view")[0].pause();
+                    }
+                })
+                
+                
+                
+                //
+                // SOUND CONTROL
+                //
                 var oscOn = function (freq) {
                     oscillator = context.createOscillator();
                     oscillator.frequency.value = freq;
@@ -47,30 +137,207 @@ and open the template in the editor.
                     oscillator.start ? oscillator.start(0) : oscillator.noteOn(0)
                 };
                 
-                $("#playBtn").click(function(){
-                    $("#console").append("click play button.<br/>");
-                    oscOn(440);
-                })
+                var MIN_SAMPLES = 0;  // will be initialized when AudioContext is created.
+                function autoCorrelate( buf, sampleRate ) {
+                    var SIZE = buf.length;
+                    var MAX_SAMPLES = Math.floor(SIZE/2);
+                    var best_offset = -1;
+                    var best_correlation = 0;
+                    var rms = 0;
+                    var foundGoodCorrelation = false;
+                    var correlations = new Array(MAX_SAMPLES);
+
+                    for (var i=0;i<SIZE;i++) {
+                            var val = buf[i];
+                            rms += val*val;
+                    }
+                    rms = Math.sqrt(rms/SIZE);
+                    if (rms<0.01) // not enough signal
+                            return -1;
+
+                    var lastCorrelation=1;
+                    for (var offset = MIN_SAMPLES; offset < MAX_SAMPLES; offset++) {
+                            var correlation = 0;
+
+                            for (var i=0; i<MAX_SAMPLES; i++) {
+                                    correlation += Math.abs((buf[i])-(buf[i+offset]));
+                            }
+                            correlation = 1 - (correlation/MAX_SAMPLES);
+                            correlations[offset] = correlation; // store it, for the tweaking we need to do below.
+                            if ((correlation>0.9) && (correlation > lastCorrelation)) {
+                                foundGoodCorrelation = true;
+                                if (correlation > best_correlation) {
+                                        best_correlation = correlation;
+                                        best_offset = offset;
+                                }
+                            } else if (foundGoodCorrelation) {
+                                var shift = (correlations[best_offset+1] - correlations[best_offset-1])/correlations[best_offset];  
+                                return sampleRate/(best_offset+(8*shift));
+                            }
+                            lastCorrelation = correlation;
+                    }
+                    if (best_correlation > 0.01) {
+                        return sampleRate/best_offset;
+                    }
+                    return -1;
+                    //	var best_frequency = sampleRate/best_offset;
+                }
                 
-                $("#stopBtn").click(function(){
-                    $("#console").append("click stop button.<br/>");
-                    oscillator.disconnect();
-                })
+                function gotStream(stream) {
+                    // Create an AudioNode from the stream.
+                    mediaStreamSource = context.createMediaStreamSource(stream);
+                    if(mediaStreamSource) log("create source success");
+                    else log("create source fail");
+
+                    // Connect it to the destination.
+                    analyser = context.createAnalyser();
+                    analyser.fftSize = 2048;
+                    mediaStreamSource.connect( analyser );
+                    
+                    if(analyser) log("create analyser success");
+                    else log("create analyser fail");
+                    
+                    updatePitch();
+                }
+                
+                function updatePitch( time ) {
+                    var cycles = new Array;
+                    analyser.getFloatTimeDomainData( buf );
+                    var ac = autoCorrelate( buf, context.sampleRate );
+                    // TODO: Paint confidence meter on canvasElem here.
+
+                    if (DEBUGCANVAS) {  // This draws the current waveform, useful for debugging
+                            waveCanvas.clearRect(0,0,512,256);
+                            waveCanvas.strokeStyle = "red";
+                            waveCanvas.beginPath();
+                            waveCanvas.moveTo(0,0);
+                            waveCanvas.lineTo(0,256);
+                            waveCanvas.moveTo(128,0);
+                            waveCanvas.lineTo(128,256);
+                            waveCanvas.moveTo(256,0);
+                            waveCanvas.lineTo(256,256);
+                            waveCanvas.moveTo(384,0);
+                            waveCanvas.lineTo(384,256);
+                            waveCanvas.moveTo(512,0);
+                            waveCanvas.lineTo(512,256);
+                            waveCanvas.stroke();
+                            waveCanvas.strokeStyle = "black";
+                            waveCanvas.beginPath();
+                            waveCanvas.moveTo(0,buf[0]);
+                            for (var i=1;i<512;i++) {
+                                    waveCanvas.lineTo(i,128+(buf[i]*128));
+                            }
+                            waveCanvas.stroke();
+                    }
+                    
+                    if(ac>0)
+                        log(ac);
+
+                    if (!window.requestAnimationFrame)
+                            window.requestAnimationFrame = window.webkitRequestAnimationFrame;
+                    rafID = window.requestAnimationFrame( updatePitch );
+                }
+                
             });
+            
+            Analyser = (function(){
+                var audioCtx, canvasCtx, analyser, bufferLength, dataArray;
+                var mediaStreamSource;
+                var drawVisual, frame;
+                var WIDTH, HEIGHT;
+                
+                var init = function(a, c){
+                    audioCtx = a;
+                    canvasCtx = c.getContext("2d");
+                    
+                    WIDTH = c.width;
+                    HEIGHT = c.height;
+                    analyser = audioCtx.createAnalyser();
+                    frame = 0;
+                    
+                    //mediaStreamSource = audioCtx.createMediaStreamSource(stream);
+                    //mediaStreamSource.connect( analyser );
+                };
+                
+                var draw = function() {
+                    if(audioCtx==null||canvasCtx==null) return;
+                    
+                    analyser.fftSize = 2048;
+                    bufferLength = analyser.fftSize;
+                    dataArray = new Uint8Array(bufferLength);
+                    analyser.getByteTimeDomainData(dataArray);
+                    
+                    canvasCtx.clearRect(0, 0, WIDTH, HEIGHT);
+
+                    drawVisual = requestAnimationFrame(draw);
+
+                    analyser.getByteTimeDomainData(dataArray);
+                    
+                    canvasCtx.fillStyle = 'rgb(200, 200, 200)';
+                    canvasCtx.fillRect(0, 0, WIDTH, HEIGHT);
+                    
+                    canvasCtx.font = "12px Arial";
+                    if(frame==60||frame==120)console.log(dataArray);
+                    canvasCtx.fillText("frame "+frame,10,50);
+                    canvasCtx.fillText("test ",100, 150);
+
+                    canvasCtx.lineWidth = 2;
+                    canvasCtx.strokeStyle = 'rgb(0, 0, 0)';
+
+                    canvasCtx.beginPath();
+
+                    var sliceWidth = WIDTH * 1.0 / bufferLength;
+                    var x = 0;
+
+                    for(var i = 0; i < bufferLength; i++) {
+
+                      var v = dataArray[i] / 128.0;
+                      var y = v * HEIGHT/2;
+
+                      if(i === 0) {
+                        canvasCtx.moveTo(x, y);
+                      } else {
+                        canvasCtx.lineTo(x, y);
+                      }
+
+                      x += sliceWidth;
+                    }
+
+                    canvasCtx.lineTo(WIDTH, HEIGHT/2);
+                    canvasCtx.stroke();
+                    
+                    
+                    
+                    
+                    frame++;
+                  };
+                
+                return {init: init, draw: draw}
+            })();
         </script>
     </head>
     <body>
         <div class="container">
             <h1>Sound Network</h1>
-            <div id="controller" style="margin-top: 30px;">
+            <div style="margin-top: 30px;">
+                <h3>Transmitter</h3>
                 <button class="btn btn-default btn-large" id="playBtn">PLAY</button>
                 <button class="btn btn-default btn-large" id="stopBtn">STOP</button>
+            </div>
+            <div style="margin-top: 30px;">
+                <h3>Receiver</h3>
+                <button class="btn btn-default btn-large" id="listenBtn">LISTEN</button>
+                <button class="btn btn-default btn-large" id="muteBtn">MUTE</button>
+                <br/><br/>
+                <video id="self_view" class="shadow" width="240" autoplay muted></video>
+                <canvas id="waveform" width="512" height="256"></canvas>
             </div>
             <hr/>
             <h3>console</h3>
             <samp>
                 <div id="console" class="bg-info" style="padding: 10px"></div>
             </samp>
+            <hr/>
         </div>
     </body>
 </html>

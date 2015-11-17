@@ -93,6 +93,15 @@ function error() {
 }
 
 function getUserMedia(dictionary, callback) {
+    var isMozilla = window.mozRTCPeerConnection && !window.webkitRTCPeerConnection;
+    if (isMozilla) {
+        window.webkitURL = window.URL;
+        navigator.webkitGetUserMedia = navigator.mozGetUserMedia;
+        window.webkitRTCPeerConnection = window.mozRTCPeerConnection;
+        window.RTCSessionDescription = window.mozRTCSessionDescription;
+        window.RTCIceCandidate = window.mozRTCIceCandidate;
+    }
+
     try {
         navigator.getUserMedia = 
         	navigator.getUserMedia ||
