@@ -22,31 +22,7 @@
         <div class="row">
             <div class="col-xs-1 col-md-3"></div>
             <div class="col-xs-10 col-md-6">
-                <h1>Audio Conference</h1>
-                <br/>
-            </div>
-            <div class="col-xs-1 col-md-3"></div>
-        </div>
-        <div class="row">
-            <div class="col-xs-1 col-md-3"></div>
-            <div class="col-xs-10 col-md-6">
-                서버사이드가 필요없는 순수한 클라이언트 베이스 P2P 
-                <br/><br/>
-                
-            </div>
-            <div class="col-xs-1 col-md-3"></div>
-        </div
-        <div class="row">
-            <div class="col-xs-1 col-md-3"></div>
-            <div class="col-xs-10 col-md-6">
-                <input type="text" class="form-control" id="conference-name">
-            </div>
-            <div class="col-xs-1 col-md-3"></div>
-        </div>
-        
-        <div class="row">
-            <div class="col-xs-1 col-md-3"></div>
-            <div class="col-xs-10 col-md-6">
+                <h1>모두의 메가폰</h1>
                 <br/>
             </div>
             <div class="col-xs-1 col-md-3"></div>
@@ -54,25 +30,8 @@
         
         <div class="row">
             <div class="col-xs-1 col-md-3"></div>
-            <div class="col-xs-10 col-md-6">
-                <button id="setup-new-conference" class="setup btn btn-primary btn-block">Setup New Conference</button>
-            </div>
-            <div class="col-xs-1 col-md-3"></div>
-        </div>
-        
-        <div class="row">
-            <div class="col-xs-1 col-md-3"></div>
-            <div class="col-xs-10 col-md-6">
-                <br/>
-            </div>
-            <div class="col-xs-1 col-md-3"></div>
-        </div>
-        
-         <div class="row">
-            <div class="col-xs-1 col-md-3"></div>
-            <div class="col-xs-10 col-md-6">
-                <!-- list of all available broadcasting rooms -->
-                <table style="width: 100%;" id="rooms-list"></table>
+            <div class="col-xs-10 col-md-6" >
+                <button id="btnSpeak" class="setup btn btn-primary btn-block" style="height: 120px">SPEAK</button>
             </div>
             <div class="col-xs-1 col-md-3"></div>
         </div>
@@ -89,66 +48,13 @@
             <div class="col-xs-1 col-md-3"></div>
             <div class="col-xs-10 col-md-6">
                 <!-- local/remote videos container -->
-                <div id="audios-container"></div>
+                <table style="width: 100%;padding: 20px" id="audios-container"></table>
             </div>
             <div class="col-xs-1 col-md-3"></div>
         </div>
     </body>
-    <script>
-        // Muaz Khan     - https://github.com/muaz-khan
-        // MIT License   - https://www.webrtc-experiment.com/licence/
-        // Documentation - https://github.com/muaz-khan/RTCMultiConnection
-
-        var connection = new RTCMultiConnection();
-        connection.session = {
-            audio: true
-        };
-
-        connection.sdpConstraints.mandatory = {
-            OfferToReceiveAudio: true,
-            OfferToReceiveVideo: false
-        };
-
-        connection.onstream = function (e) {
-            audioContainer.insertBefore(e.mediaElement, audioContainer.firstChild);
-        };
-
-        var sessions = {};
-        connection.onNewSession = function (session) {
-            if (sessions[session.sessionid])
-                return;
-            sessions[session.sessionid] = session;
-
-            var tr = document.createElement('tr');
-            tr.innerHTML = '<td><strong>' + session.sessionid + '</strong> is running a conference!</td>' +
-                    '<td><button class="join btn btn-default">Join</button></td>';
-            roomsList.insertBefore(tr, roomsList.firstChild);
-
-            var joinRoomButton = tr.querySelector('.join');
-            joinRoomButton.setAttribute('data-sessionid', session.sessionid);
-            joinRoomButton.onclick = function () {
-                this.disabled = true;
-
-                var sessionid = this.getAttribute('data-sessionid');
-                session = sessions[sessionid];
-
-                if (!session)
-                    throw 'No such session exists.';
-
-                connection.join(session);
-            };
-        };
-
-        var audioContainer = document.getElementById('audios-container') || document.body;
-        var roomsList = document.getElementById('rooms-list');
-
-        document.getElementById('setup-new-conference').onclick = function () {
-            this.disabled = true;
-            connection.open(document.getElementById('conference-name').value || 'Anonymous');
-        };
-
-        // setup signaling to search existing sessions
-        connection.connect();
+    <script type="text/javascript">
+        
 
         (function () {
             var uniqueToken = document.getElementById('unique-token');
@@ -158,5 +64,94 @@
                 else
                     uniqueToken.innerHTML = uniqueToken.parentNode.parentNode.href = '#' + (Math.random() * new Date().getTime()).toString(36).toUpperCase().replace(/\./g, '-');
         })();
+        
+        $(document).ready(function(){
+            var media;
+            var audioContainer = document.getElementById('audios-container') || document.body;
+
+            var connection = new RTCMultiConnection();
+            connection.session = {
+                audio: true
+            };
+
+            connection.sdpConstraints.mandatory = {
+                OfferToReceiveAudio: true,
+                OfferToReceiveVideo: false
+            };
+
+            connection.onstream = function (e) {
+                console.log("sessionid: "+ connection.sessionid);
+                console.log("userid: "+ connection.userid);
+                
+                console.log(e);
+                var tr = document.createElement('tr');
+                tr.id = "tr"+e.userid;
+                var userContainer;
+                if(e.userid==connection.userid){
+                    tr.innerHTML = '<td><strong>' + e.userid + '</strong></td>' +
+                            '<td id='+e.userid+'></td>';
+                    media = e.mediaElement;
+                    media.pause();
+                    audioContainer.insertBefore(tr, audioContainer.firstChild);
+                    userContainer = document.getElementById(e.userid);
+                    userContainer.insertBefore(e.mediaElement, userContainer.firstChild);
+                }else{
+                    tr.innerHTML = '<td>' + e.userid + '</td>' +
+                        '<td id='+e.userid+'></td>';
+                    audioContainer.insertBefore(tr, audioContainer.firstChild);
+                    userContainer = document.getElementById(e.userid);
+                    userContainer.insertBefore(e.mediaElement, userContainer.firstChild);
+                    e.mediaElement.muted = false;
+                }
+                
+                
+            };
+            
+            connection.onstreamended = function(e){
+                $("#tr"+e.userid).remove();
+            };
+
+            var sessions = {};
+            connection.onNewSession = function (session) {
+                if (sessions[session.sessionid])
+                    return;
+                sessions[session.sessionid] = session;
+                if(session.sessionid == "phone") connection.join(session);                
+            };
+            
+            connection.onspeaking = function (e) {
+                // e.streamid, e.userid, e.stream, etc.
+                e.mediaElement.style.border = '1px solid red';
+            };
+            /*
+            $("#btnSpeak").mousedown(function(e){
+                e.currentTarget.blur();
+                if(media) media.play();
+            });
+            $("#btnSpeak").mouseup(function(e){
+                e.currentTarget.blur();
+                if(media) media.pause();
+            });
+            */
+            $('#btnSpeak').on({ 
+                'touchstart' : function(){ if(media) media.play(); },
+                'touchend' : function(){ if(media) media.pause(); },
+                'mousedown' : function(){ if(media) media.play(); },
+                'mouseup' : function(){ if(media) media.pause(); } 
+            } );
+
+            // setup signaling to search existing sessions
+            connection.connect();
+            setTimeout(function(){
+                //if don't have session, open to session
+                if(Object.keys(sessions).length==0){
+                   connection.open('phone');
+                }
+                else{
+                    console.log('Already session opened.');
+                }
+            }, 5000);
+            
+        });
     </script>
 </html>
